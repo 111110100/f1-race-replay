@@ -360,7 +360,6 @@ class DriverInfoComponent(BaseComponent):
         self.min_top = min_top
 
     def draw(self, window):
-        # 1. 드라이버 선택 여부 확인
         if not getattr(window, "selected_driver", None):
             return
 
@@ -373,16 +372,11 @@ class DriverInfoComponent(BaseComponent):
         if code not in frame["drivers"]: return
         driver_pos = frame["drivers"][code]
 
-        # ---------------------------------------------------
-        # [1] 레이아웃 좌표 계산
-        # ---------------------------------------------------
         box_width = self.width
         box_height = 160
 
-        # 박스의 중심 X 좌표
         center_x = self.left + box_width / 2
 
-        # 박스의 Y 좌표 결정
         default_y = window.height / 2
         weather_bottom = getattr(window, "weather_bottom", None)
 
@@ -392,42 +386,31 @@ class DriverInfoComponent(BaseComponent):
         else:
             center_y = default_y
 
-        # [수정] 30px 아래로 이동
         center_y -= 30
 
-        # 화면 아래로 너무 내려가지 않게 최소 높이 제한
+        # driver box height limit
         center_y = max(center_y, self.min_top + box_height / 2)
 
-        # 실제 그리기 영역 (Top / Bottom / Left / Right)
+        # actual drawing area  (Top / Bottom / Left / Right)
         top = center_y + box_height / 2
         bottom = center_y - box_height / 2
         left = center_x - box_width / 2
         right = center_x + box_width / 2
 
-        # ---------------------------------------------------
-        # [2] 배경 및 헤더 그리기
-        # ---------------------------------------------------
-        # 메인 배경
         rect = arcade.XYWH(center_x, center_y, box_width, box_height)
         arcade.draw_rect_filled(rect, (0, 0, 0, 200))
 
-        # 테두리
         team_color = window.driver_colors.get(code, arcade.color.GRAY)
         arcade.draw_rect_outline(rect, team_color, 2)
 
-        # 헤더 (상단바)
         header_height = 30
         header_cy = top - (header_height / 2)
         header_rect = arcade.XYWH(center_x, header_cy, box_width, header_height)
         arcade.draw_rect_filled(header_rect, team_color)
 
-        # 헤더 텍스트
         arcade.Text(f"Driver: {code}", left + 10, header_cy,
                     arcade.color.BLACK, 14, anchor_y="center", bold=True).draw()
 
-        # ---------------------------------------------------
-        # [3] 데이터 내용 그리기
-        # ---------------------------------------------------
         header_bottom = top - header_height
         cursor_y = header_bottom - 25
         left_text_x = left + 15
@@ -459,54 +442,54 @@ class DriverInfoComponent(BaseComponent):
         cursor_y -= (row_gap + 5)
 
         # ---------------------------------------------------
-        # [4] 세로 막대 그래프 (오른쪽 배치)
+        # [4] vertical stick graph (right side)
         # ---------------------------------------------------
-        # 데이터 가져오기
+        # get data
         throttle = driver_pos.get('throttle', 0)
         brake = driver_pos.get('brake', 0)
 
-        # 0~100 범위 정규화 (데이터가 0~1 범위일 경우 대비)
+        # 0~100 range normalization (preparing if the data has 0~1 range)
         t_ratio = max(0.0, min(1.0, throttle / 100.0))
         if brake > 1.0:
             b_ratio = max(0.0, min(1.0, brake / 100.0))
         else:
             b_ratio = max(0.0, min(1.0, brake))
 
-        # 그래프 위치 설정
+        # set graph location
         bar_width = 20
         bar_max_height = 80
         bar_bottom_y = bottom + 35  # 바닥에서 약간 위
 
-        # 오른쪽 영역의 중심
+        # center value of right section
         right_section_center = right - 50
 
-        # (D) Throttle Bar (오른쪽 첫번째)
+        # (D) Throttle Bar
         th_x = right_section_center - 15
 
-        # 라벨
+        # throttle label
         arcade.Text("THR", th_x, bar_bottom_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
 
-        # 배경 (회색) - XYWH는 중심점 기준이므로 계산 주의
-        # 중심 Y = 바닥 Y + (높이 / 2)
+        # throttle bg_color (grey) - XYWH는 중심점 기준이므로 계산 주의
+        # center Y = bottom Y + (height / 2)
         bg_cy = bar_bottom_y + (bar_max_height / 2)
         arcade.draw_rect_filled(arcade.XYWH(th_x, bg_cy, bar_width, bar_max_height), arcade.color.DARK_GRAY)
 
-        # 값 (초록색) - 아래에서 위로 채워짐
+        # throttle value (green) - filled from bottom to top
         if t_ratio > 0:
             val_height = bar_max_height * t_ratio
             val_cy = bar_bottom_y + (val_height / 2)
             arcade.draw_rect_filled(arcade.XYWH(th_x, val_cy, bar_width, val_height), arcade.color.GREEN)
 
-        # (E) Brake Bar (오른쪽 두번째)
+        # (E) Brake Bar
         br_x = right_section_center + 15
 
-        # 라벨
+        # brake label
         arcade.Text("BRK", br_x, bar_bottom_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
 
-        # 배경 (회색)
+        # brake bg_color (grey)
         arcade.draw_rect_filled(arcade.XYWH(br_x, bg_cy, bar_width, bar_max_height), arcade.color.DARK_GRAY)
 
-        # 값 (빨간색)
+        # brake value (red)
         if b_ratio > 0:
             val_height = bar_max_height * b_ratio
             val_cy = bar_bottom_y + (val_height / 2)
