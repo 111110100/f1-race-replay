@@ -262,7 +262,7 @@ class LeaderboardComponent(BaseComponent):
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
         for i, (code, color, pos, progress_m) in enumerate(self.entries):
-            current_pos = i + 1
+            current_pos = pos.get("position")
             top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
             left_x = self.x
