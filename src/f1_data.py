@@ -857,8 +857,23 @@ def list_rounds(year):
     enable_cache()
     print(f"F1 Schedule {year}")
     schedule = fastf1.get_event_schedule(year)
+
+    sprint_name = 'sprint_qualifying'
+    if year == 2023:
+        sprint_name = 'sprint_shootout'
+    if year in [2021, 2022]:
+        sprint_name = 'sprint'
+
+    has_sprint = False
     for _, event in schedule.iterrows():
-        print(f"{event['RoundNumber']}: {event['EventName']}")
+        suffix = " (*)" if event['EventFormat'] == sprint_name else ""
+        if suffix:
+            has_sprint = True
+        print(f"{event['RoundNumber']}: {event['EventName']}{suffix}")
+
+    if has_sprint:
+        print("(*) Sprint Weekend")
+    sys.exit(0)
 
 def list_sprints(year):
     """Lists all sprint rounds for a given year."""
@@ -876,3 +891,4 @@ def list_sprints(year):
     else:
         for _, event in sprints.iterrows():
             print(f"{event['RoundNumber']}: {event['EventName']}")
+    sys.exit(0)
