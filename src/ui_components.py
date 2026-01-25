@@ -248,6 +248,8 @@ class LeaderboardComponent(BaseComponent):
         self.row_height = 25
         self._tyre_textures = {}
         self._visible: bool = visible
+        self.show_times = False
+        self.show_intervals = False
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
@@ -277,6 +279,22 @@ class LeaderboardComponent(BaseComponent):
         Set visibility of leaderboard to True
         """
         self._visible = True
+
+    def toggle_times(self):
+        """
+        Toggle the visibility of the time gap between a driver and the race leader
+        """
+        self.show_times = not self.show_times
+        if self.show_times:
+            self.show_intervals = False
+
+    def toggle_intervals(self):
+        """
+        Toggle the visibility of the time gap between drivers
+        """
+        self.show_intervals = not self.show_intervals
+        if self.show_intervals:
+            self.show_times = False
 
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
         # entries sorted as expected
@@ -351,6 +369,28 @@ class LeaderboardComponent(BaseComponent):
                 drs_dot_y = tyre_icon_y
 
                 arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
+
+            if self.show_times and new_entries:
+                leader_progress = new_entries[0][3]  # Get the race progress (in decimeters) of the leader (first entry)
+                # `progress_m` is in decimeters, so `diff_m` is the distance gap in decimeters.
+                diff_m = leader_progress - progress_m  # Calculate distance difference between leader and current driver
+                # Estimate time gap. Convert to meters (divide by 10) and divide by a reference speed of 55.56 m/s (~200 km/h) to get time gap in seconds.
+                diff_s = (diff_m / 10.0) / 55.56
+
+                if diff_s > 0:  # Only display if there is a positive gap (not the leader)
+                    time_str = f"+{diff_s:.3f}"  # Format time gap to 3 decimal places
+                    arcade.Text(time_str, left_x + self.width - 40, top_y, text_color, 12, anchor_x="right", anchor_y="top").draw()  # Draw the time gap text
+            
+            elif self.show_intervals and new_entries and i > 0:
+                ahead_progress = new_entries[i-1][3]  # Get progress of the driver immediately ahead
+                # `progress_m` is in decimeters, so `diff_m` is the distance interval in decimeters.
+                diff_m = ahead_progress - progress_m  # Calculate distance interval to the car ahead
+                # Estimate time interval. Convert to meters (divide by 10) and divide by a reference speed of 55.56 m/s (~200 km/h) to get time interval in seconds.
+                diff_s = (diff_m / 10.0) / 55.56
+
+                if diff_s > 0:  # Only display if there is a positive interval
+                    time_str = f"+{diff_s:.3f}"  # Format interval to 3 decimal places
+                    arcade.Text(time_str, left_x + self.width - 40, top_y, text_color, 12, anchor_x="right", anchor_y="top").draw()  # Draw the interval text
 
         # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
         if new_entries[0][2].get("lap", 0) == 1:
@@ -831,6 +871,9 @@ class ControlsPopupComponent(BaseComponent):
             "[D]    Toggle DRS Zones",
             "[B]    Toggle Progress Bar",
             "[L]    Toggle Driver Labels",
+            "[T]    Toggle Leader Times",
+            "[I]    Toggle Intervals",
+            "[S]    Toggle Session Info",
             "[H]    Toggle Help Popup",
         ]
         

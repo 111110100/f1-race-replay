@@ -24,6 +24,8 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Toggle DRS Zone**: **D** to hide/showi DRS Zone
 - **Toggle Progress Bar**: **B** to hide/show progress bar
 - **Toggle Driver Names**: **L** to hide/show driver names on track
+- **Toggle Leader Times**: **T** to hide/show leader times
+- **Toggle Intervals**: **I** to hide/show intervals
 - **Select driver/drivers**: Click to select driver or shift click to select multiple drivers
 
 
