@@ -1,4 +1,5 @@
 import os
+import time
 import arcade
 import numpy as np
 from scipy.spatial import cKDTree
@@ -29,7 +30,8 @@ class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None, session=None, enable_telemetry=False):
+                 session_info=None, session=None, enable_telemetry=False,
+                 race_control_messages=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -50,6 +52,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         self.frames = frames
         self.track_statuses = track_statuses
+        self.race_control_messages = race_control_messages or []
         self.n_frames = len(frames)
         self.drivers = list(drivers)
         self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
@@ -242,13 +245,23 @@ class F1RaceReplayWindow(arcade.Window):
         if current_frame and "drivers" in current_frame:
             driver_progress = {}
             for code, pos in current_frame["drivers"].items():
-                x, y = pos["x"], pos["y"]
-                progress_m = self._project_to_reference(x, y)
+                x, y = pos.get("x", 0.0), pos.get("y", 0.0)
+                lap_raw = pos.get("lap", 1)
+                try:
+                    lap = int(lap_raw)
+                except (ValueError, TypeError):
+                    lap = 1
+                projected_m = self._project_to_reference(x, y)
+                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
                 driver_progress[code] = progress_m
+                if self._ref_total_length > 0:
+                    pos["fraction"] = progress_m / self._ref_total_length
+                else:
+                    pos["fraction"] = 0.0
                 
             if driver_progress:
-                leader_code = max(driver_progress.keys(), key=lambda k: driver_progress[k])
-                leader_lap = current_frame["drivers"].get(leader_code, {}).get("lap", 1)
+                leader_code = max(driver_progress.keys(), key=lambda c: driver_progress[c])
+                leader_lap = current_frame["drivers"][leader_code].get("lap", 1)
         
         # Format time
         t = current_frame["t"] if current_frame else 0
@@ -257,7 +270,24 @@ class F1RaceReplayWindow(arcade.Window):
         seconds = int(t % 60)
         time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
         
-        self.telemetry_stream.broadcast({
+        # Gather all race control events up to the current frame time.
+        # Sends the full history every broadcast so newly opened windows
+        # receive all past events immediately.  The list is small (30-80
+        # messages per race) and the window de-duplicates on its end.
+        rc_events = []
+        if current_frame and self.race_control_messages:
+            frame_time = current_frame["t"]
+            for msg in self.race_control_messages:
+                if msg["time"] <= frame_time:
+                    rc_events.append(msg)
+                else:
+                    break  # list is sorted, nothing further will match
+
+        hex_driver_colors = {
+            code: "#{:02X}{:02X}{:02X}".format(*rgb)
+            for code, rgb in self.driver_colors.items()
+        }
+        payload = {
             "frame_index": int(self.frame_index),
             "frame": current_frame,
             "track_status": current_track_status,
@@ -265,13 +295,30 @@ class F1RaceReplayWindow(arcade.Window):
             "is_paused": self.paused,
             "total_frames": self.n_frames,
             "circuit_length_m": self.circuit_length_m,
+            "driver_colors": hex_driver_colors,
+            "has_rc_data": bool(self.race_control_messages),
+            "race_control_events": rc_events,
             "session_data": {
                 "time": time_str,
                 "lap": leader_lap,
                 "leader": leader_code,
                 "total_laps": self.total_laps
             }
-        })
+        }
+
+        # Send every ~2s so reconnecting clients receive geometry without special handling
+        if hasattr(self, 'plot_x_ref') and int(self.frame_index) % 120 == 0:
+            payload["track_geometry"] = {
+                "x": self.plot_x_ref.tolist(),
+                "y": self.plot_y_ref.tolist(),
+                "x_inner": self.x_inner.tolist(),
+                "y_inner": self.y_inner.tolist(),
+                "x_outer": self.x_outer.tolist(),
+                "y_outer": self.y_outer.tolist(),
+                "rotation_deg": self.circuit_rotation,
+            }
+
+        self.telemetry_stream.broadcast(payload)
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
@@ -519,6 +566,72 @@ class F1RaceReplayWindow(arcade.Window):
                 arcade.draw_text(code, lx + text_padding, ly, color, 10, anchor_x=anchor_x, anchor_y="center", bold=True)
 
             arcade.draw_circle_filled(sx, sy, 6, color)
+        
+        # 3b. Draw Safety Car (if active)
+        sc_data = frame.get("safety_car")
+        if sc_data is not None:
+            sc_x = sc_data["x"]
+            sc_y = sc_data["y"]
+            sc_phase = sc_data.get("phase", "on_track")
+            sc_alpha = sc_data.get("alpha", 1.0)
+            
+            sc_sx, sc_sy = self.world_to_screen(sc_x, sc_y)
+            
+            # Safety car color: bright orange/amber
+            sc_base_color = (255, 165, 0)  # Orange
+            
+            # Calculate alpha for the car body
+            body_alpha = int(255 * max(0.1, sc_alpha))
+            sc_color_with_alpha = (*sc_base_color, body_alpha)
+            
+            # Pulsing glow effect during deploying/returning phases
+            if sc_phase in ("deploying", "returning"):
+                pulse = 0.5 + 0.5 * np.sin(time.time() * 8.0)  # Fast pulse
+                glow_radius = 16 + pulse * 6
+                glow_alpha = int(80 * sc_alpha * pulse)
+                
+                # Outer glow ring
+                arcade.draw_circle_filled(sc_sx, sc_sy, glow_radius, (255, 200, 0, glow_alpha))
+                arcade.draw_circle_outline(sc_sx, sc_sy, glow_radius + 2, (255, 100, 0, int(glow_alpha * 0.6)), 2)
+                
+                # Draw dashed trail line from pit to track position
+                trail_alpha = int(120 * sc_alpha)
+                trail_color = (255, 165, 0, trail_alpha)
+                arcade.draw_circle_outline(sc_sx, sc_sy, 12, trail_color, 2)
+            else:
+                # Steady glow when on track
+                arcade.draw_circle_filled(sc_sx, sc_sy, 14, (255, 165, 0, 40))
+            
+            # Draw SC body (larger than regular cars)
+            arcade.draw_circle_filled(sc_sx, sc_sy, 8, sc_color_with_alpha)
+            
+            # Orange outline ring
+            outline_alpha = int(255 * sc_alpha)
+            arcade.draw_circle_outline(sc_sx, sc_sy, 9, (255, 100, 0, outline_alpha), 2)
+            
+            # "SC" label - always visible
+            label_alpha = int(255 * max(0.3, sc_alpha))
+            label_color = (255, 255, 255, label_alpha)
+            arcade.draw_text(
+                "SC", sc_sx + 14, sc_sy + 2, label_color, 11,
+                anchor_x="left", anchor_y="center", bold=True
+            )
+            
+            # Phase indicator text during transitions
+            if sc_phase == "deploying":
+                phase_text = "SC DEPLOYING"
+                phase_color = (255, 200, 0, int(200 * sc_alpha))
+                arcade.draw_text(
+                    phase_text, sc_sx, sc_sy - 18, phase_color, 8,
+                    anchor_x="center", anchor_y="top", bold=True
+                )
+            elif sc_phase == "returning":
+                phase_text = "SC IN"
+                phase_color = (255, 200, 0, int(200 * sc_alpha))
+                arcade.draw_text(
+                    phase_text, sc_sx, sc_sy - 18, phase_color, 8,
+                    anchor_x="center", anchor_y="top", bold=True
+                )
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
